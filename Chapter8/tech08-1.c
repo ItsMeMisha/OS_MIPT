@@ -21,19 +21,17 @@ volatile sig_atomic_t changedValue = 0;
 
 void usr1Handler(int signalNum)
 {
-    ++num;
     changedValue = 1;
 }
 
 void usr2Handler(int signalNum)
 {
-    num *= -1;
-    changedValue = 1;
+    changedValue = 2;
 }
 
 void termHandler(int signalNum)
 {
-    exit(0);
+    _exit(0);
 }
 
 int main()
@@ -53,12 +51,18 @@ int main()
     fflush(stdout);
     scanf("%d", &num);
 
-    while (1)
+    while (1) {
+        pause();
+        if (changedValue == 1)
+            ++num;
+        else if (changedValue == 2)
+            num *= -1;
+
         if (changedValue) {
             printf("%d\n", num);
             fflush(stdout);
             changedValue = 0;
         }
-
+    }
     return 0;
 }
