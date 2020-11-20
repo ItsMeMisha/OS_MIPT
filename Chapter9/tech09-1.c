@@ -31,6 +31,7 @@ const char contentLengthFormat[] = "Content-Length: %ld\r\n\r\n";
 
 const size_t bufSize = 4096;
 const mode_t Readable = S_IRUSR | S_IRGRP | S_IROTH;
+int sock = 0;
 
 volatile sig_atomic_t toExit = 0;
 volatile sig_atomic_t waitConnection = 0;
@@ -39,7 +40,9 @@ void sigHandler(int signalNum)
 {
     toExit = 1;
     if (waitConnection) {
-        exit(0);
+        shutdown(sock, SHUT_RDWR);
+        close(sock);
+        _exit(0);
     }
 }
 
@@ -60,17 +63,9 @@ int main(const int argc, const char* argv[])
     sscanf(argv[1], "%hu", &port);
     port = htons(port);
 
-    char* path = (char*)calloc(sizeof(char), PATH_MAX);
-    strncpy(path, argv[2], PATH_MAX);
-    size_t pathLength = strlen(path);
-    if (pathLength < PATH_MAX && path[pathLength - 1] != '/') {
-        path[pathLength] = '/';
-        ++pathLength;
-    }
-
     struct sockaddr_in connection = {
         .sin_family = AF_INET, .sin_port = port, .sin_addr = {addr}};
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    sock = socket(AF_INET, SOCK_STREAM, 0);
 
     if (0 != bind(sock, (struct sockaddr*)&connection, sizeof(connection))) {
         error = FAILED_TO_CONNECT;
@@ -91,7 +86,6 @@ int main(const int argc, const char* argv[])
         }
         waitConnection = 0;
 
-        path[pathLength] = '\0';
         char* bufInput = (char*)calloc(sizeof(char), bufSize);
         int hasRead = recv(clientSocket, bufInput, bufSize, 0);
         if (hasRead < sizeof("GET   HTTP/1.1")) {
@@ -99,6 +93,15 @@ int main(const int argc, const char* argv[])
             free(bufInput);
             goto connectionEnd;
         }
+
+        char* path = (char*)calloc(sizeof(char), PATH_MAX);
+        strncpy(path, argv[2], PATH_MAX);
+        size_t pathLength = strlen(path);
+        if (pathLength < PATH_MAX && path[pathLength - 1] != '/') {
+            path[pathLength] = '/';
+            ++pathLength;
+        }
+        path[pathLength] = '\0';
 
         char* fileName = bufInput + 4;
         char* fileNameEnd = strstr(bufInput + 4, " HTTP/1.1");
@@ -113,15 +116,18 @@ int main(const int argc, const char* argv[])
         struct stat fileInfo;
         if (-1 == lstat(path, &fileInfo)) {
             send(clientSocket, httpNotFound, sizeof(httpNotFound) - 1, 0);
+            free(path);
             goto connectionEnd;
         }
 
         if (!(fileInfo.st_mode & Readable)) {
             send(clientSocket, httpForbidden, sizeof(httpForbidden) - 1, 0);
+            free(path);
             goto connectionEnd;
         }
 
         int file = open(path, O_RDONLY);
+        free(path);
         send(clientSocket, httpOK, sizeof(httpOK) - 1, 0);
         dprintf(clientSocket, contentLengthFormat, fileInfo.st_size);
 
@@ -142,14 +148,14 @@ int main(const int argc, const char* argv[])
         }
 
     connectionEnd:
-        close(clientSocket);
         shutdown(clientSocket, SHUT_RDWR);
+        close(clientSocket);
         if (error != ALLRIGHT)
             goto end;
     }
 
 end:
-    free(path);
+    shutdown(sock, SHUT_RDWR);
     close(sock);
     return error;
 }

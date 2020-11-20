@@ -41,7 +41,7 @@ int main(const int argc, const char* argv[])
     }
 
 end:
-
+    shutdown(sock, SHUT_RDWR);
     close(sock);
     return ALLRIGHT;
 }
